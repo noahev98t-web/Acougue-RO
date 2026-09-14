@@ -35,6 +35,17 @@ const resetNumbers = async (total) => {
 };
 
 const money = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Sempre trabalha com 5 posições fixas (1º ao 5º lugar). Cada uma tem um texto
+// e um "ativo" que decide se ela entra no sorteio e aparece pro cliente.
+function normalizePremios(raw) {
+  let arr = Array.isArray(raw) ? raw : [];
+  arr = arr.map((p) =>
+    typeof p === "string" ? { texto: p, ativo: true } : { texto: p?.texto || "", ativo: !!p?.ativo }
+  );
+  while (arr.length < 5) arr.push({ texto: "", ativo: false });
+  return arr.slice(0, 5);
+}
 const PIX_KEY = "acougue.donaana@pix.com.br";
 
 // ---------- LOGIN DO PAINEL ----------
@@ -175,10 +186,24 @@ export default function SorteioAcougue() {
     showToast("Grade de números reiniciada.");
   }
 
-  function sortear() {
-    const vendidos = numbers.filter((n) => n.status === "vendido");
-    if (vendidos.length === 0) return showToast("Ainda não há números vendidos.");
-    setWinner(vendidos[Math.floor(Math.random() * vendidos.length)]);
+  async function sortear() {
+    const premios = normalizePremios(config.premios).filter((p) => p.ativo && p.texto.trim());
+    const pool = numbers.filter((n) => n.status === "vendido");
+    if (pool.length === 0) return showToast("Ainda não há números vendidos.");
+    if (premios.length === 0) return showToast("Marque e preencha ao menos um prêmio antes de sortear.");
+    if (pool.length < premios.length) {
+      showToast(`Só há ${pool.length} número(s) vendido(s) para ${premios.length} prêmio(s). Sorteando o possível.`);
+    }
+    const restante = [...pool];
+    const resultado = [];
+    for (let i = 0; i < premios.length && restante.length > 0; i++) {
+      const idx = Math.floor(Math.random() * restante.length);
+      const [ganhador] = restante.splice(idx, 1);
+      resultado.push({ lugar: i + 1, premio: premios[i].texto, numero: ganhador.numero, nome: ganhador.nome });
+    }
+    await patchConfig({ resultado });
+    setConfig((c) => ({ ...c, resultado }));
+    setWinner(resultado);
   }
 
   if (loading) return <div style={S.page}>Carregando dados do sorteio...</div>;
@@ -209,7 +234,7 @@ export default function SorteioAcougue() {
 
       <header style={S.header}>
         <div>
-          <div style={S.eyebrow}>Açougue RO</div>
+          <div style={S.eyebrow}>Casa de Carnes Dona Ana</div>
           <h1 style={S.h1}>Sorteio do açougue</h1>
         </div>
         <div style={S.tabs}>
@@ -226,7 +251,13 @@ export default function SorteioAcougue() {
 
       {winner && (
         <div style={S.winnerBanner} className="fadein">
-          <div><strong>Número sorteado: {winner.numero}</strong> — {winner.nome}</div>
+          <div>
+            {winner.map((w) => (
+              <div key={w.lugar} style={{ marginBottom: 4 }}>
+                <strong>{w.lugar}º lugar</strong> — {w.premio}: número {w.numero} ({w.nome || "aguardando confirmação"})
+              </div>
+            ))}
+          </div>
           <button style={S.linkBtn} onClick={() => setWinner(null)}>fechar</button>
         </div>
       )}
@@ -313,9 +344,16 @@ function ClienteView({ config, numbers, stats, onPick }) {
   return (
     <div className="fadein">
       <section style={S.infoCard}>
-        <div><div style={S.infoLabel}>Prêmio</div><div style={S.infoValue}>{config.premio}</div></div>
+        <div>
+          <div style={S.infoLabel}>Prêmios</div>
+          <div style={S.infoValue}>
+            {normalizePremios(config.premios)
+              .filter((p) => p.ativo && p.texto.trim())
+              .map((p, i) => <div key={i}>{i + 1}º — {p.texto}</div>)}
+          </div>
+        </div>
         <div><div style={S.infoLabel}>Preço por número</div><div style={S.infoValue}>{money(config.preco)}</div></div>
-        <div><div style={S.infoLabel}>Sorteio</div><div style={S.infoValue}>{new Date(config.data + "T00:00:00").toLocaleDateString("pt-BR")}</div></div>
+        <div><div style={S.infoLabel}>Sorteio</div><div style={S.infoValue}>{new Date(config.data + "T00:00:00").toLocaleDateString("pt-BR")} · Loteria Federal</div></div>
         <div><div style={S.infoLabel}>Disponíveis</div><div style={S.infoValue}>{stats.livres} de {numbers.length}</div></div>
       </section>
 
@@ -357,11 +395,41 @@ function PainelView({ config, stats, reservas, vendas, onConfirm, onRelease, onS
 
       <section style={S.panelCard}>
         <h2 style={S.h2}>Configurar sorteio</h2>
-        <div style={S.formRow}>
-          <div style={{ flex: 2 }}>
-            <label style={S.label}>Prêmio</label>
-            <input style={S.input} value={local.premio} onChange={(e) => setLocal({ ...local, premio: e.target.value })} onBlur={() => onSaveConfig({ premio: local.premio })} />
+
+        <label style={S.label}>Prêmios — marque quais entram nesse sorteio (até 5)</label>
+        {normalizePremios(local.premios).map((p, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={p.ativo}
+              onChange={(e) => {
+                const premios = normalizePremios(local.premios);
+                premios[i] = { ...premios[i], ativo: e.target.checked };
+                setLocal({ ...local, premios });
+              }}
+              style={{ width: 18, height: 18, flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 12.5, color: "#8A7F6B", minWidth: 22 }}>{i + 1}º</span>
+            <input
+              style={S.input}
+              value={p.texto}
+              disabled={!p.ativo}
+              onChange={(e) => {
+                const premios = normalizePremios(local.premios);
+                premios[i] = { ...premios[i], texto: e.target.value };
+                setLocal({ ...local, premios });
+              }}
+              placeholder={`Prêmio do ${i + 1}º lugar`}
+            />
           </div>
+        ))}
+        <div style={{ marginBottom: 14 }}>
+          <button style={S.confirmBtn} onClick={() => onSaveConfig({ premios: normalizePremios(local.premios) })}>
+            Salvar prêmios
+          </button>
+        </div>
+
+        <div style={S.formRow}>
           <div>
             <label style={S.label}>Preço por número</label>
             <input style={S.input} type="number" value={local.preco} onChange={(e) => setLocal({ ...local, preco: Number(e.target.value) || 0 })} onBlur={() => onSaveConfig({ preco: local.preco })} />
@@ -423,45 +491,4 @@ const S = {
   page: { fontFamily: "system-ui, -apple-system, sans-serif", background: "#F6EFE4", color: "#2A2420", padding: "20px 16px 60px", minHeight: "100%", maxWidth: 720, margin: "0 auto" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, borderBottom: "2px solid #2A2420", paddingBottom: 14, marginBottom: 18 },
   eyebrow: { fontSize: 12, letterSpacing: 0.4, color: "#7A1F1F", fontWeight: 500 },
-  h1: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 26, margin: "4px 0 0", fontWeight: 700 },
-  h2: { fontFamily: "Georgia, serif", fontSize: 17, margin: "0 0 12px", fontWeight: 700 },
-  tabs: { display: "flex", gap: 8 },
-  tab: { background: "transparent", border: "1.5px solid #2A2420", borderRadius: 999, padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#2A2420" },
-  tabActive: { background: "#2A2420", border: "1.5px solid #2A2420", borderRadius: 999, padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#F6EFE4" },
-  infoCard: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, background: "#FFFDF8", border: "1px solid #E4DAC6", borderRadius: 12, padding: 16, marginBottom: 16 },
-  infoLabel: { fontSize: 11, color: "#8A7F6B", marginBottom: 2 },
-  infoValue: { fontSize: 14, fontWeight: 600 },
-  legend: { display: "flex", gap: 16, marginBottom: 10, fontSize: 12, color: "#5C5344" },
-  legendItem: { display: "flex", alignItems: "center", gap: 6 },
-  dot: { width: 9, height: 9, borderRadius: 999, display: "inline-block" },
-  grid: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 },
-  numCell: { aspectRatio: "1", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600 },
-  overlay: { position: "fixed", inset: 0, background: "rgba(42,36,32,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 10 },
-  modal: { background: "#FFFDF8", borderRadius: 14, padding: 20, width: "100%", maxWidth: 380 },
-  modalHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
-  modalNum: { fontFamily: "Georgia, serif", fontSize: 18, fontWeight: 700 },
-  p: { fontSize: 14, margin: "6px 0" },
-  pSmall: { fontSize: 12.5, color: "#7A6F5C", lineHeight: 1.5 },
-  pixBox: { background: "#F1EAD9", border: "1px dashed #C98A2C", borderRadius: 10, padding: 12, margin: "10px 0" },
-  pixLabel: { fontSize: 11, color: "#8A7F6B", marginBottom: 4 },
-  pixKey: { fontSize: 13.5, fontWeight: 600, wordBreak: "break-all", marginBottom: 8 },
-  copyBtn: { background: "#2A2420", color: "#F6EFE4", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12.5, cursor: "pointer" },
-  label: { display: "block", fontSize: 12, color: "#5C5344", margin: "10px 0 4px" },
-  input: { width: "100%", boxSizing: "border-box", border: "1px solid #D8CCB4", borderRadius: 8, padding: "9px 10px", fontSize: 14, background: "#fff", color: "#2A2420" },
-  primaryBtn: { marginTop: 14, width: "100%", background: "#7A1F1F", color: "#F6EFE4", border: "none", borderRadius: 8, padding: "11px 14px", fontSize: 14, fontWeight: 600, cursor: "pointer" },
-  linkBtn: { background: "none", border: "none", color: "#7A1F1F", fontSize: 13, cursor: "pointer", textDecoration: "underline" },
-  toast: { position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", background: "#2A2420", color: "#F6EFE4", padding: "10px 16px", borderRadius: 999, fontSize: 13, zIndex: 20, boxShadow: "0 6px 18px rgba(0,0,0,0.25)" },
-  winnerBanner: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "#C98A2C", color: "#2A2420", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 14 },
-  statsRow: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 18 },
-  statBox: { background: "#FFFDF8", border: "1px solid #E4DAC6", borderRadius: 10, padding: "12px 8px", textAlign: "center" },
-  statValue: { fontSize: 16, fontWeight: 700 },
-  statLabel: { fontSize: 11, color: "#8A7F6B", marginTop: 2 },
-  panelCard: { background: "#FFFDF8", border: "1px solid #E4DAC6", borderRadius: 12, padding: 16, marginBottom: 16 },
-  formRow: { display: "flex", gap: 10, marginBottom: 4, flexWrap: "wrap" },
-  rowItem: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "10px 0", borderTop: "1px solid #EFE7D6", fontSize: 13.5 },
-  rowActions: { display: "flex", gap: 8 },
-  confirmBtn: { background: "#3B5A2A", color: "#F6EFE4", border: "none", borderRadius: 8, padding: "7px 10px", fontSize: 12.5, cursor: "pointer" },
-  releaseBtn: { background: "transparent", color: "#7A1F1F", border: "1px solid #7A1F1F", borderRadius: 8, padding: "7px 10px", fontSize: 12.5, cursor: "pointer" },
-  soldWrap: { display: "flex", flexWrap: "wrap", gap: 8 },
-  soldChip: { background: "#F1EAD9", borderRadius: 999, padding: "5px 10px", fontSize: 12 },
-};
+  h1: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 26, mar
