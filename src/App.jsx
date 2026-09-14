@@ -37,6 +37,18 @@ const resetNumbers = async (total) => {
 const money = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const PIX_KEY = "acougue.donaana@pix.com.br";
 
+// ---------- LOGIN DO PAINEL ----------
+// Hash SHA-256 da senha do admin. Senha padrão: acougue123
+// Pra trocar a senha, gere um novo hash no console do navegador com:
+// crypto.subtle.digest('SHA-256', new TextEncoder().encode('SUA-NOVA-SENHA')).then(b => console.log(Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2,'0')).join('')))
+// e cole o resultado abaixo.
+const ADMIN_PASSWORD_HASH = "8ca75ef4f0a8d0ffcb604fb447ba2b1dd9a7b5619effcce155bb41a1fad80e34";
+
+async function sha256(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export default function SorteioAcougue() {
   const [view, setView] = useState("cliente");
   const [config, setConfig] = useState(null);
@@ -48,6 +60,25 @@ export default function SorteioAcougue() {
   const [tick, setTick] = useState(0);
   const [winner, setWinner] = useState(null);
   const [toast, setToast] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem("acougue_admin") === "1");
+  const [loginError, setLoginError] = useState("");
+
+  async function tryLogin(password) {
+    const hash = await sha256(password);
+    if (hash === ADMIN_PASSWORD_HASH) {
+      localStorage.setItem("acougue_admin", "1");
+      setIsAdmin(true);
+      setLoginError("");
+    } else {
+      setLoginError("Senha incorreta.");
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("acougue_admin");
+    setIsAdmin(false);
+    setView("cliente");
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -202,18 +233,25 @@ export default function SorteioAcougue() {
 
       {view === "cliente" ? (
         <ClienteView config={config} numbers={numbers} stats={stats} onPick={pickNumber} />
+      ) : !isAdmin ? (
+        <LoginView onLogin={tryLogin} error={loginError} />
       ) : (
-        <PainelView
-          config={config}
-          stats={stats}
-          reservas={reservas}
-          vendas={vendas}
-          onConfirm={confirmPayment}
-          onRelease={releaseNumber}
-          onSortear={sortear}
-          onSaveConfig={saveConfig}
-          onChangeTotal={changeTotal}
-        />
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+            <button style={S.linkBtn} onClick={logout}>sair do painel</button>
+          </div>
+          <PainelView
+            config={config}
+            stats={stats}
+            reservas={reservas}
+            vendas={vendas}
+            onConfirm={confirmPayment}
+            onRelease={releaseNumber}
+            onSortear={sortear}
+            onSaveConfig={saveConfig}
+            onChangeTotal={changeTotal}
+          />
+        </>
       )}
 
       {selectedNum && (
@@ -246,6 +284,27 @@ export default function SorteioAcougue() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function LoginView({ onLogin, error }) {
+  const [password, setPassword] = useState("");
+  return (
+    <div className="fadein" style={S.panelCard}>
+      <h2 style={S.h2}>Painel do açougue</h2>
+      <p style={S.pSmall}>Digite a senha de acesso pra ver reservas, confirmar pagamentos e configurar o sorteio.</p>
+      <label style={S.label}>Senha</label>
+      <input
+        style={S.input}
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && onLogin(password)}
+        placeholder="Senha do painel"
+      />
+      {error && <p style={{ ...S.pSmall, color: "#7A1F1F", marginTop: 6 }}>{error}</p>}
+      <button style={S.primaryBtn} onClick={() => onLogin(password)}>Entrar</button>
     </div>
   );
 }
