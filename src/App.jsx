@@ -209,7 +209,7 @@ export default function SorteioAcougue() {
 
       <header style={S.header}>
         <div>
-          <div style={S.eyebrow}>Casa de Carnes Dona Ana</div>
+          <div style={S.eyebrow}>Açougue RO</div>
           <h1 style={S.h1}>Sorteio do açougue</h1>
         </div>
         <div style={S.tabs}>
@@ -315,7 +315,7 @@ function ClienteView({ config, numbers, stats, onPick }) {
       <section style={S.infoCard}>
         <div><div style={S.infoLabel}>Prêmio</div><div style={S.infoValue}>{config.premio}</div></div>
         <div><div style={S.infoLabel}>Preço por número</div><div style={S.infoValue}>{money(config.preco)}</div></div>
-        <div><div style={S.infoLabel}>Sorteio</div><div style={S.infoValue}>{new Date(config.data + "T00:00:00").toLocaleDateString("pt-BR")} · Loteria Federal</div></div>
+        <div><div style={S.infoLabel}>Sorteio</div><div style={S.infoValue}>{new Date(config.data + "T00:00:00").toLocaleDateString("pt-BR")}</div></div>
         <div><div style={S.infoLabel}>Disponíveis</div><div style={S.infoValue}>{stats.livres} de {numbers.length}</div></div>
       </section>
 
